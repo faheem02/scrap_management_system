@@ -23,7 +23,7 @@ $sales_st->execute([$id]);
 $sales = $sales_st->fetchAll();
 
 // Receipts from customer_receipts table (separate payment entries)
-$receipts = $pdo->prepare("SELECT id, receipt_date, amount, payment_method, description FROM customer_receipts WHERE customer_id = ? ORDER BY receipt_date ASC, id ASC");
+$receipts = $pdo->prepare("SELECT id, sales_id, receipt_date, amount, payment_method, description FROM customer_receipts WHERE customer_id = ? ORDER BY receipt_date ASC, id ASC");
 $receipts->execute([$id]);
 $receipts = $receipts->fetchAll();
 
@@ -60,6 +60,8 @@ foreach ($sales as $s) {
 }
 
 foreach ($receipts as $r) {
+    // Skip receipts that are linked to an invoice (already counted in sales.paid_amount)
+    if (!empty($r['sales_id'])) continue;
     $all_rows[] = [
         'date'   => $r['receipt_date'],
         'sort'   => 3,
@@ -71,6 +73,25 @@ foreach ($receipts as $r) {
         'link'   => null,
     ];
 }
+
+// Payments sent to customer via fund_transfers (Debit)
+try {
+    $cust_transfers = $pdo->prepare("SELECT id, voucher_no, transfer_date, amount, from_type, description FROM fund_transfers WHERE customer_id = ? AND to_type = 'customer' ORDER BY transfer_date ASC, id ASC");
+    $cust_transfers->execute([$id]);
+    foreach ($cust_transfers->fetchAll() as $ct) {
+        $all_rows[] = [
+            'date'   => $ct['transfer_date'],
+            'sort'   => 4,
+            'desc'   => 'Payment to Customer [Voucher #' . $ct['voucher_no'] . ']' . ($ct['description'] ? ' - ' . $ct['description'] : ''),
+            'debit'  => (float)$ct['amount'],
+            'credit' => 0,
+            'method' => $ct['from_type'],
+            'type'   => 'payment',
+            'link'   => '../transactions/voucher.php?id=' . $ct['id'],
+        ];
+    }
+} catch (Exception $e) {}
+
 usort($all_rows, function($a, $b) {
     if ($a['date'] === $b['date']) return $a['sort'] <=> $b['sort'];
     return strcmp($a['date'], $b['date']);
@@ -196,8 +217,12 @@ require_once dirname(__DIR__, 2) . '/includes/header.php';
           <tr class="<?=$r['type']==='opening' ? 'table-secondary font-weight-bold' : ''?>" data-date="<?=htmlspecialchars($r['date'])?>">
             <td><?=formatDate($r['date'])?></td>
             <td>
-              <?=htmlspecialchars($r['desc'])?>
-              <?php if ($r['method']): ?><span class="badge badge-secondary"><?=ucfirst($r['method'])?></span><?php endif; ?>
+              <?php if (!empty($r['link'])): ?>
+                <a href="<?= htmlspecialchars($r['link']) ?>" class="font-weight-bold" target="_blank"><?= htmlspecialchars($r['desc']) ?></a>
+              <?php else: ?>
+                <?=htmlspecialchars($r['desc'])?>
+              <?php endif; ?>
+              <?php if ($r['method']): ?><span class="badge badge-secondary ml-1"><?=ucfirst($r['method'])?></span><?php endif; ?>
             </td>
             <td class="text-right"><?=$r['debit'] > 0 ? 'PKR '.formatCurrency($r['debit']) : '-'?></td>
             <td class="text-right"><?=$r['credit'] > 0 ? 'PKR '.formatCurrency($r['credit']) : '-'?></td>

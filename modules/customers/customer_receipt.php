@@ -22,6 +22,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($amount <= 0) {
         redirect('customer_receipt.php?id=' . $id, 'Enter a valid amount', 'error');
     }
+    $receivable = (float)$customer['current_balance'];
+    if ($receivable <= 0) {
+        redirect('customer_receipt.php?id=' . $id, 'Nothing to receive from ' . $customer['full_name'] . ' (balance is clear or advance)', 'error');
+    }
+    if ($amount > $receivable) {
+        redirect('customer_receipt.php?id=' . $id, 'Amount (' . formatCurrency($amount) . ') cannot exceed receivable (' . formatCurrency($receivable) . ')', 'error');
+    }
 
     $pdo->beginTransaction();
     try {
@@ -41,6 +48,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             recordCashInflow($pdo, $receipt_date, $amount, $desc, 'customer_receipt', $id, $_SESSION['user_id']);
         }
+        allocateReceiptToSales($pdo, $id);
         updateCustomerBalance($pdo, $id);
         $pdo->commit();
         logActivity($pdo, 'payment', 'customer', $id, 'Received ' . $amount . ' from ' . $customer['full_name']);
@@ -68,8 +76,12 @@ require_once dirname(__DIR__, 2) . '/includes/header.php';
       <div class="row">
         <div class="col-md-3 mb-3">
           <label class="form-label">Amount (PKR) *</label>
-          <input type="number" name="amount" step="0.01" min="0" class="form-control" required placeholder="0.00">
-          <?php if ($bal > 0): ?><small class="text-muted">Receivable: PKR <?=formatCurrency($bal)?></small><?php endif; ?>
+          <input type="number" name="amount" step="0.01" min="0" max="<?=$bal > 0 ? $bal : 0?>" class="form-control" required placeholder="0.00" <?=$bal <= 0 ? 'disabled' : ''?>>
+          <?php if ($bal > 0): ?>
+            <small class="text-muted">Receivable: PKR <?=formatCurrency($bal)?> (max)</small>
+          <?php else: ?>
+            <small class="text-danger">Nothing to receive — balance is clear or advance.</small>
+          <?php endif; ?>
         </div>
         <div class="col-md-3 mb-3">
           <label class="form-label">Receipt Date *</label>
@@ -95,7 +107,7 @@ require_once dirname(__DIR__, 2) . '/includes/header.php';
           <input type="text" name="description" class="form-control" value="Customer payment">
         </div>
         <div class="col-md-4 mb-3 d-flex align-items-end">
-          <button type="submit" class="btn btn-success btn-block py-2"><i class="fas fa-check"></i> Confirm Receipt</button>
+          <button type="submit" class="btn btn-success btn-block py-2" <?=$bal <= 0 ? 'disabled' : ''?>><i class="fas fa-check"></i> Confirm Receipt</button>
         </div>
       </div>
     </form>

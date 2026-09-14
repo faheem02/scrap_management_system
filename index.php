@@ -12,6 +12,23 @@ $today_expenses = $pdo->query("SELECT COALESCE(SUM(amount),0) FROM expenses WHER
 $today_cash_in = $pdo->query("SELECT COALESCE(SUM(amount),0) FROM cash_book WHERE transaction_date = CURDATE() AND transaction_type = 'inflow'")->fetchColumn();
 $today_cash_out = $pdo->query("SELECT COALESCE(SUM(amount),0) FROM cash_book WHERE transaction_date = CURDATE() AND transaction_type = 'outflow'")->fetchColumn();
 
+// ===== FREIGHT CHARGES (Kiraya) =====
+$today_freight_paid_purchases = (float)$pdo->query("SELECT COALESCE(SUM(paid_amount),0) FROM purchases WHERE purchase_date = CURDATE() AND status <> 'cancelled'")->fetchColumn();
+$today_freight_total_purchases = (float)$pdo->query("SELECT COALESCE(SUM(total_amount),0) FROM purchases WHERE purchase_date = CURDATE() AND status <> 'cancelled'")->fetchColumn();
+$today_freight_vehicles = (int)$pdo->query("SELECT COUNT(*) FROM purchases WHERE purchase_date = CURDATE() AND status <> 'cancelled'")->fetchColumn();
+$today_freight_expenses = (float)$pdo->query("
+    SELECT COALESCE(SUM(e.amount),0)
+    FROM expenses e
+    LEFT JOIN expense_categories ec ON e.category_id = ec.id
+    WHERE e.expense_date = CURDATE()
+      AND (LOWER(ec.name) LIKE '%transport%' OR LOWER(ec.name) LIKE '%freight%' OR LOWER(ec.name) LIKE '%kiraya%'
+           OR LOWER(e.description) LIKE '%transport%' OR LOWER(e.description) LIKE '%freight%' OR LOWER(e.description) LIKE '%kiraya%')
+")->fetchColumn();
+$today_freight_paid = $today_freight_paid_purchases + $today_freight_expenses;
+$today_freight_total = $today_freight_total_purchases + $today_freight_expenses;
+$total_freight_due = (float)$pdo->query("SELECT COALESCE(SUM(due_amount),0) FROM purchases WHERE status <> 'cancelled'")->fetchColumn();
+$total_vehicles_count = (int)$pdo->query("SELECT COUNT(*) FROM purchases WHERE status <> 'cancelled'")->fetchColumn();
+
 // ===== CASH / BANK =====
 $cash_in_hand = $pdo->query("SELECT closing_balance FROM cash_book_daily ORDER BY date DESC LIMIT 1")->fetchColumn();
 if (!$cash_in_hand) $cash_in_hand = 0;
@@ -44,7 +61,7 @@ $stock_value = $pdo->query("SELECT COALESCE(SUM(stock_quantity * purchase_price)
 
 // ===== RECENT =====
 $recent_purchases = $pdo->query("
-    SELECT p.id, p.invoice_no, p.total_amount, p.paid_amount, p.due_amount, p.purchase_date
+    SELECT p.id, p.invoice_no, p.vehicle_no, p.party_name, p.total_amount, p.paid_amount, p.due_amount, p.purchase_date
     FROM purchases p
     WHERE p.status <> 'cancelled' ORDER BY p.id DESC LIMIT 5
 ")->fetchAll();
@@ -205,6 +222,29 @@ $user_name = $_SESSION['user_name'] ?? 'Admin';
       </div>
     </div>
   </div>
+  <div class="col-xl-3 col-md-6 mb-3">
+    <div class="card stat-card" style="border-left: 0.25rem solid #6366f1 !important;">
+      <div class="card-body py-3">
+        <div class="row no-gutters align-items-center">
+          <div class="col mr-2">
+            <div class="stat-label" style="color: #4f46e5;">Freight Paid (Today)</div>
+            <div class="stat-value" style="color: #312e81;"><?= formatCurrency($today_freight_paid) ?></div>
+            <div class="stat-sub">
+              <span><i class="fas fa-truck text-muted"></i> <?= (int)$today_freight_vehicles ?> vehicle(s)</span>
+              <?php if ($total_freight_due > 0): ?>
+                <span class="mx-1">&middot;</span>
+                <span class="text-danger font-weight-bold" title="Outstanding Freight Due">Due: <?= formatCurrency($total_freight_due) ?></span>
+              <?php endif; ?>
+              <a href="<?= $base_url ?? '' ?>modules/purchases/index.php" class="link-sub ml-1" style="color: #4f46e5;">View</a>
+            </div>
+          </div>
+          <div class="col-auto icon-circle" style="background: linear-gradient(135deg, #6366f1, #4338ca); color: #fff;">
+            <i class="fas fa-truck-moving"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
   <?php endif; ?>
   <div class="col-xl-3 col-md-6 mb-3">
     <div class="card stat-card border-left-warning">
@@ -251,22 +291,39 @@ $user_name = $_SESSION['user_name'] ?? 'Admin';
   <div class="col-lg-6 mb-3">
     <div class="card shadow h-100">
       <div class="card-header d-flex justify-content-between align-items-center">
-        <h6><i class="fas fa-cart-arrow-down text-info"></i> Recent Purchases</h6>
+        <h6><i class="fas fa-truck text-info"></i> Recent Vehicle Freight (Purchases)</h6>
         <a href="<?= $base_url ?? '' ?>modules/purchases/index.php" class="btn btn-sm btn-outline-info">View All</a>
       </div>
       <div class="card-body p-0">
         <div class="table-responsive">
           <table class="table table-hover mb-0">
-            <thead><tr><th>Invoice</th><th class="text-right">Total</th><th class="text-right">Due</th></tr></thead>
+            <thead>
+              <tr>
+                <th>Vehicle / Inv</th>
+                <th>Party</th>
+                <th class="text-right">Freight</th>
+                <th class="text-right">Paid</th>
+                <th class="text-right">Due</th>
+              </tr>
+            </thead>
             <tbody>
               <?php if (count($recent_purchases)): foreach ($recent_purchases as $p): ?>
                 <tr>
-                  <td class="font-weight-bold"><?= htmlspecialchars($p['invoice_no']) ?></td>
-                  <td class="text-right"><?= formatCurrency($p['total_amount']) ?></td>
-                  <td class="text-right <?= $p['due_amount'] > 0 ? 'text-danger font-weight-bold' : 'text-success' ?>"><?= formatCurrency($p['due_amount']) ?></td>
+                  <td>
+                    <div class="font-weight-bold text-dark"><?= htmlspecialchars($p['vehicle_no'] ?: $p['invoice_no']) ?></div>
+                    <?php if (!empty($p['vehicle_no'])): ?>
+                      <small class="text-muted"><?= htmlspecialchars($p['invoice_no']) ?></small>
+                    <?php endif; ?>
+                  </td>
+                  <td><?= htmlspecialchars($p['party_name'] ?: 'N/A') ?></td>
+                  <td class="text-right font-weight-bold"><?= formatCurrency($p['total_amount']) ?></td>
+                  <td class="text-right text-success font-weight-bold"><?= formatCurrency($p['paid_amount']) ?></td>
+                  <td class="text-right <?= $p['due_amount'] > 0 ? 'text-danger font-weight-bold' : 'text-muted' ?>">
+                    <?= $p['due_amount'] > 0 ? formatCurrency($p['due_amount']) : '—' ?>
+                  </td>
                 </tr>
               <?php endforeach; else: ?>
-                <tr><td colspan="4" class="text-center text-muted py-4">No purchases yet</td></tr>
+                <tr><td colspan="5" class="text-center text-muted py-4">No vehicle freight records yet</td></tr>
               <?php endif; ?>
             </tbody>
           </table>
@@ -382,6 +439,7 @@ $user_name = $_SESSION['user_name'] ?? 'Admin';
   <?php endif; ?>
   <?php if (isAdmin()): ?>
   <div class="col-md-3 col-6 mb-2"><a href="<?= $base_url ?? '' ?>modules/employees/index.php" class="chip-chip"><i class="fas fa-user-tie"></i><span class="chip-num"><?= (int)$total_employees ?></span> Employees</a></div>
+  <div class="col-md-3 col-6 mb-2"><a href="<?= $base_url ?? '' ?>modules/purchases/index.php" class="chip-chip"><i class="fas fa-truck"></i><span class="chip-num"><?= (int)$total_vehicles_count ?></span> Vehicles / Freight</a></div>
   <?php endif; ?>
 </div>
 

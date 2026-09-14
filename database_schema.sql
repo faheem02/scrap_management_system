@@ -304,6 +304,7 @@ CREATE TABLE sale_items (
 CREATE TABLE customer_receipts (
     id              INT AUTO_INCREMENT PRIMARY KEY,
     customer_id     INT NOT NULL,
+    sales_id        INT DEFAULT NULL,
     amount          DECIMAL(12,2) NOT NULL,
     payment_method  ENUM('cash','bank') DEFAULT 'cash',
     bank_account_id INT DEFAULT NULL,
@@ -311,6 +312,7 @@ CREATE TABLE customer_receipts (
     receipt_date    DATE NOT NULL,
     created_by      INT DEFAULT NULL,
     created_at      DATE NOT NULL,
+    is_split        TINYINT(1) NOT NULL DEFAULT 0,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
     FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id) ON DELETE SET NULL,
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
@@ -403,6 +405,33 @@ CREATE TABLE employee_salaries (
     created_at      DATE NOT NULL,
     FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
     FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id) ON DELETE SET NULL,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------
+-- 23. fund_transfers
+-- ---------------------------------------------------------
+CREATE TABLE fund_transfers (
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    voucher_no      VARCHAR(50) NOT NULL UNIQUE,
+    transfer_type   ENUM('bank_to_bank','bank_to_cash','cash_to_bank','customer_payment') NOT NULL,
+    from_type       ENUM('bank','cash') NOT NULL,
+    from_bank_id    INT DEFAULT NULL,
+    to_type         ENUM('bank','cash','customer') NOT NULL,
+    to_bank_id      INT DEFAULT NULL,
+    customer_id     INT DEFAULT NULL,
+    amount          DECIMAL(12,2) NOT NULL,
+    transfer_date   DATE NOT NULL,
+    reference_no    VARCHAR(100) DEFAULT NULL,
+    description     TEXT DEFAULT NULL,
+    created_by      INT DEFAULT NULL,
+    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_voucher (voucher_no),
+    INDEX idx_transfer_date (transfer_date),
+    INDEX idx_transfer_type (transfer_type),
+    FOREIGN KEY (from_bank_id) REFERENCES bank_accounts(id) ON DELETE SET NULL,
+    FOREIGN KEY (to_bank_id) REFERENCES bank_accounts(id) ON DELETE SET NULL,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 

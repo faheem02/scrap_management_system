@@ -27,17 +27,14 @@ $sales = $sales_st->fetchAll();
 $receipts_st = $pdo->prepare("
     SELECT customer_id, payment_method, amount
     FROM customer_receipts
-    WHERE receipt_date = ?
+    WHERE receipt_date = ? AND is_split = 0
 ");
 $receipts_st->execute([$report_date]);
 $receipts_rows = $receipts_st->fetchAll();
-$receipts_map = [];
 $receipts_cash = 0;
 $receipts_bank = 0;
 foreach ($receipts_rows as $r) {
-    $cid = (int)$r['customer_id'];
     $amt = (float)$r['amount'];
-    $receipts_map[$cid] = ($receipts_map[$cid] ?? 0) + $amt;
     if (($r['payment_method'] ?? 'cash') === 'bank') {
         $receipts_bank += $amt;
     } else {
@@ -186,7 +183,7 @@ require_once dirname(__DIR__, 2) . '/includes/header.php';
         <tbody>
           <?php if (count($sales)): ?>
             <?php $i = 0; foreach ($sales as $s): $i++;
-              $row_received = (float)$s['paid_amount'] + ($receipts_map[(int)$s['customer_id']] ?? 0);
+              $row_received = (float)$s['paid_amount'];
             ?>
             <tr>
               <td><?= $i ?></td>

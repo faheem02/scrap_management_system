@@ -55,6 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'pay') {
         // Insert customer receipt
         insert('customer_receipts', [
             'customer_id'     => $sale['customer_id'],
+            'sales_id'        => $sale_id,
             'amount'          => $amount,
             'payment_method'  => $payment_method,
             'bank_account_id' => $payment_method == 'bank' ? $bank_account_id : null,

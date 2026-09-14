@@ -80,6 +80,11 @@ if (!isset($base_url)) {
       clone.querySelectorAll('.table-responsive').forEach(function(n) {
         n.style.overflow = 'visible';
       });
+      // Ensure all date cells, amount cells, and text-nowrap elements stay strictly on 1 line
+      clone.querySelectorAll('.text-nowrap, th:first-child, td:first-child, .text-right, th.text-right, td.text-right').forEach(function(n) {
+        n.style.whiteSpace = 'nowrap';
+        n.style.wordBreak = 'keep-all';
+      });
 
       container.appendChild(clone);
       document.body.appendChild(container);
@@ -303,6 +308,14 @@ if (!isset($base_url)) {
       <a class="nav-link <?= str_contains($_SERVER['PHP_SELF'],'bankbook') ? 'active' : '' ?>" href="<?= $base_url ?? '' ?>modules/bankbook/index.php">
         <i class="fas fa-fw fa-university"></i>
         <span>Bank Book</span>
+      </a>
+    </div>
+
+    <!-- Transfers -->
+    <div class="nav-item">
+      <a class="nav-link <?= (str_contains($_SERVER['PHP_SELF'],'transfers.php') || str_contains($_SERVER['PHP_SELF'],'voucher.php')) ? 'active' : '' ?>" href="<?= $base_url ?? '' ?>modules/transactions/transfers.php">
+        <i class="fas fa-fw fa-exchange-alt"></i>
+        <span>Transfers</span>
       </a>
     </div>
 

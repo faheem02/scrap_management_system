@@ -105,8 +105,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     if (!$branch_id) {
-        $firstBranch = $pdo->query("SELECT id FROM branches LIMIT 1")->fetchColumn();
+        $firstBranch = $pdo->query("SELECT id FROM branches ORDER BY id ASC LIMIT 1")->fetchColumn();
         if ($firstBranch) $branch_id = (int)$firstBranch;
+    }
+
+    // Ensure user_id is valid for FK constraint (prevents FK error if users table was wiped)
+    $user_id = !empty($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null;
+    if ($user_id) {
+        $chkU = $pdo->prepare("SELECT id FROM users WHERE id = ?");
+        $chkU->execute([$user_id]);
+        if (!$chkU->fetchColumn()) {
+            $user_id = null;
+        }
+    }
+    if (!$user_id) {
+        $firstUser = $pdo->query("SELECT id FROM users ORDER BY id ASC LIMIT 1")->fetchColumn();
+        if ($firstUser) $user_id = (int)$firstUser;
     }
 
     // Ensure customer_id exists if provided
@@ -175,6 +189,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
+        // Apply any outstanding advance (prepaid cash) to this invoice
+        if ($due_amount > 0) {
+            consumeCustomerAdvances($pdo, $customer_id);
+        }
         updateCustomerBalance($pdo, $customer_id);
 
         $pdo->commit();

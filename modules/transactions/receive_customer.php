@@ -9,10 +9,12 @@ $bank_accounts = $pdo->query("SELECT id, account_name, bank_name FROM bank_accou
 foreach ($pdo->query("SELECT id FROM customers")->fetchAll() as $c) updateCustomerBalance($pdo, $c['id']);
 $customers = $pdo->query("SELECT id, full_name, current_balance FROM customers ORDER BY full_name")->fetchAll();
 
-$receipts = $pdo->query("SELECT r.*, c.full_name, ba.account_name
+$receipts = $pdo->query("SELECT r.*, c.full_name, ba.account_name, s.invoice_no AS linked_invoice
     FROM customer_receipts r
     JOIN customers c ON c.id = r.customer_id
     LEFT JOIN bank_accounts ba ON ba.id = r.bank_account_id
+    LEFT JOIN sales s ON s.id = r.sales_id
+    WHERE r.is_split = 0
     ORDER BY r.receipt_date DESC, r.id DESC")->fetchAll();
 
 $preselect = (int)($_GET['customer_id'] ?? 0);
@@ -28,12 +30,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$customer_id) { redirect('receive_customer.php', 'Select a customer', 'error'); }
     if ($amount <= 0) { redirect('receive_customer.php', 'Enter a valid amount', 'error'); }
 
+    $sales_id = (int)($_POST['sales_id'] ?? 0) ?: null;
+
+    $customer = getById('customers', $customer_id);
+    if (!$customer) { redirect('receive_customer.php', 'Customer not found', 'error'); }
+    $receivable = (float)$customer['current_balance'];
+    if ($receivable <= 0) { redirect('receive_customer.php', 'Nothing to receive from ' . $customer['full_name'] . ' (balance is clear or advance)', 'error'); }
+    if ($amount > $receivable) { redirect('receive_customer.php', 'Amount ('.formatCurrency($amount).') cannot exceed receivable ('.formatCurrency($receivable).') for ' . $customer['full_name'], 'error'); }
+    if ($sales_id) {
+        $inv = getById('sales', $sales_id);
+        if (!$inv || (int)$inv['customer_id'] !== $customer_id) { redirect('receive_customer.php', 'Invalid invoice selected', 'error'); }
+        if ($amount > (float)$inv['due_amount']) { redirect('receive_customer.php', 'Amount ('.formatCurrency($amount).') exceeds due of invoice #' . $inv['invoice_no'] . ' ('.formatCurrency($inv['due_amount']).')', 'error'); }
+    }
+
     $pdo->beginTransaction();
     try {
-        $customer = getById('customers', $customer_id);
-        if (!$customer) throw new Exception('Customer not found');
-        insert('customer_receipts', [
+        $receipt_id = insert('customer_receipts', [
             'customer_id' => $customer_id,
+            'sales_id' => $sales_id,
             'amount' => $amount,
             'payment_method' => $payment_method,
             'bank_account_id' => $bank_id,
@@ -48,8 +62,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             recordCashInflow($pdo, $tdate, $amount, $desc, 'customer_receipt', $customer_id, $_SESSION['user_id']);
         }
+        allocateReceiptToSales($pdo, $customer_id, $receipt_id, $sales_id);
         updateCustomerBalance($pdo, $customer_id);
-        allocateReceiptsToSales($pdo, $customer_id);
         logActivity($pdo, 'receive', 'customer', $customer_id, 'Received PKR ' . $amount . ' from ' . $customer['full_name']);
         $pdo->commit();
         redirect('receive_customer.php', 'Received PKR ' . formatCurrency($amount) . ' from ' . $customer['full_name']);
@@ -111,7 +125,7 @@ require_once dirname(__DIR__, 2) . '/includes/header.php';
             </div>
             <div class="col-md-3 mb-3">
               <label class="form-label">Amount (PKR) *</label>
-              <input type="number" name="amount" step="0.01" min="0" class="form-control" required placeholder="0.00">
+              <input type="number" name="amount" id="recvAmount" step="0.01" min="0" class="form-control" required placeholder="0.00">
             </div>
             <div class="col-md-3 mb-3">
               <label class="form-label">Date *</label>
@@ -119,6 +133,13 @@ require_once dirname(__DIR__, 2) . '/includes/header.php';
             </div>
           </div>
           <div class="row">
+            <div class="col-md-4 mb-3">
+              <label class="form-label">Pay Against Invoice *</label>
+              <select name="sales_id" id="salesId" class="form-control">
+                <option value="">Auto (oldest invoice)</option>
+              </select>
+              <small class="text-muted" id="invoiceHint"></small>
+            </div>
             <div class="col-md-4 mb-3">
               <label class="form-label">Method</label>
               <select name="payment_method" id="payMethod" class="form-control">
@@ -134,7 +155,9 @@ require_once dirname(__DIR__, 2) . '/includes/header.php';
                 <?php endforeach; ?>
               </select>
             </div>
-            <div class="col-md-4 mb-3">
+          </div>
+          <div class="row">
+            <div class="col-md-12 mb-3">
               <label class="form-label">Notes / Description</label>
               <input type="text" name="description" class="form-control" value="Customer payment">
             </div>
@@ -186,16 +209,17 @@ require_once dirname(__DIR__, 2) . '/includes/header.php';
     <div class="table-responsive">
       <table class="table table-bordered" id="payHistoryTable">
         <thead>
-          <tr><th>#</th><th>Date</th><th>Customer</th><th>Description</th><th>Method</th><th class="text-right">Amount</th></tr>
+          <tr><th>#</th><th>Date</th><th>Customer</th><th>Against Invoice</th><th>Description</th><th>Method</th><th class="text-right">Amount</th></tr>
         </thead>
         <tbody>
           <?php if (empty($receipts)): ?>
-            <tr><td colspan="6" class="text-center text-muted py-3">No payments received yet.</td></tr>
+            <tr><td colspan="7" class="text-center text-muted py-3">No payments received yet.</td></tr>
           <?php else: $i = 0; foreach ($receipts as $r): $i++; ?>
             <tr>
               <td><?=$i?></td>
               <td><?=formatDate($r['receipt_date'])?></td>
               <td class="font-weight-bold"><?=htmlspecialchars($r['full_name'])?></td>
+              <td><?= $r['linked_invoice'] ? 'Invoice #' . htmlspecialchars($r['linked_invoice']) : '<span class="badge badge-secondary">Advance</span>' ?></td>
               <td><?=htmlspecialchars($r['description'] ?? '-')?></td>
               <td>
                 <?php if ($r['payment_method'] == 'bank'): ?>
@@ -248,15 +272,61 @@ $(document).ready(function(){
   var preselect = <?= $preselect ? 'true' : 'false' ?>;
   if (preselect) { $('#receiveModal').modal('show'); }
 
+  var currentReceivable = 0;
+  var pendingInvoices = {}; // sale_id -> due_amount
+
+  function validateAmountField(){
+    var amt = parseFloat($('#recvAmount').val()) || 0;
+    var selId = $('#salesId').val();
+    var max = currentReceivable;
+    if (selId && pendingInvoices[selId] !== undefined) max = Math.min(max, pendingInvoices[selId]);
+    $('#recvAmount').attr('max', max > 0 ? max : null);
+  }
+
+  function loadInvoices(customerId) {
+    var $sel = $('#salesId');
+    $sel.html('<option value="">Auto (oldest invoice)</option>');
+    $('#invoiceHint').text('');
+    pendingInvoices = {};
+    if (!customerId) return;
+    $.getJSON('ajax_customer_invoices.php', {customer_id: customerId}, function(invoices){
+      if (!invoices || !invoices.length) {
+        $('#invoiceHint').text('All invoices settled.');
+        return;
+      }
+      $.each(invoices, function(i, inv){
+        pendingInvoices[inv.id] = Number(inv.due_amount);
+        var label = inv.invoice_no + ' — Due: PKR ' + Number(inv.due_amount).toFixed(2) + ' (' + inv.sale_date + ')';
+        $sel.append($('<option value="' + inv.id + '">' + label + '</option>'));
+      });
+    });
+  }
+
   function pickCustomer(id, name){
     $('#customer_id').val(id);
     $('#customerSearch').val(name);
     $('#customerError').addClass('d-none');
+    $('#recvAmount').val('');
+    $('#invoiceHint').text('');
     mtHideList($('#customerList'));
     $.get('ajax_customer_balance.php', {id: id}, function(data){
-      mtShowBalance(data);
+      var b = Number(data);
+      currentReceivable = b > 0 ? b : 0;
+      mtShowBalance(b);
+      validateAmountField();
     });
+    loadInvoices(id);
   }
+
+  $('#salesId').change(function(){
+    var selId = $(this).val();
+    if (selId && pendingInvoices[selId] !== undefined) {
+      $('#recvAmount').val(pendingInvoices[selId]);
+    }
+    validateAmountField();
+  });
+
+  $('#recvAmount').on('input', validateAmountField);
 
   $('#payMethod').change(function(){ $('#bankDiv').toggle(this.value === 'bank'); });
 
@@ -331,6 +401,25 @@ $(document).ready(function(){
       e.preventDefault();
       $('#customerError').removeClass('d-none');
       $('#customerSearch').focus();
+      return;
+    }
+    var amt = parseFloat($('#recvAmount').val()) || 0;
+    var selId = $('#salesId').val();
+    var max = currentReceivable;
+    if (selId && pendingInvoices[selId] !== undefined) max = Math.min(max, pendingInvoices[selId]);
+    if (max <= 0) {
+      e.preventDefault();
+      alert('Nothing to receive from this customer (balance is clear or advance).');
+      return;
+    }
+    if (amt <= 0) {
+      e.preventDefault();
+      alert('Enter a valid amount.');
+      return;
+    }
+    if (amt > max) {
+      e.preventDefault();
+      alert('Amount cannot exceed PKR ' + max.toFixed(2) + ' (remaining receivable' + (selId ? ' for the selected invoice' : '') + ').');
     }
   });
 

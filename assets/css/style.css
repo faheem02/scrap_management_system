@@ -373,7 +373,15 @@ select.form-control, select.form-select {
 /* ===== PRINT ===== */
 @media print {
   .sidebar, .topbar, .no-print, .scroll-to-top, .sidebar-overlay { display: none !important; }
-  #content-wrapper { margin-left: 0 !important; }
+  #content-wrapper { margin-left: 0 !important; width: 100% !important; }
+  .table-responsive {
+    overflow: visible !important;
+    overflow-x: visible !important;
+    display: block !important;
+  }
+  .table-responsive::-webkit-scrollbar {
+    display: none !important;
+  }
 }
 
 /* ===== GENERIC LIST-PAGE PRINT (list pages w/ simple window.print()) ===== */
@@ -420,6 +428,10 @@ select.form-control, select.form-select {
   h5 { font-size: 18px !important; font-weight: 800 !important; color: #000 !important; }
   h6 { font-size: 16px !important; font-weight: 800 !important; color: #000 !important; }
   small, .text-muted { font-size: 13px !important; color: #1e293b !important; font-weight: 600 !important; }
+  .text-nowrap, .table th.text-nowrap, .table td.text-nowrap, .table td:first-child, .table th:first-child {
+    white-space: nowrap !important;
+    word-break: keep-all !important;
+  }
 }
 
 /* ===== PROFESSIONAL PRINT REPORT (invoice register) ===== */
