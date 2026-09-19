@@ -98,6 +98,12 @@ body {
   font-weight: 600; opacity: 0.55; white-space: nowrap;
 }
 
+.sidebar-heading {
+  font-size: 0.70rem; text-transform: uppercase; letter-spacing: 0.1em;
+  color: #ffffff; padding: 0.7rem 1rem 0.3rem;
+  font-weight: 700; opacity: 0.95; white-space: nowrap;
+}
+
 /* Nav items */
 .nav-item { position: relative; }
 

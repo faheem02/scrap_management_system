@@ -89,15 +89,16 @@ function countRows($table, $column = null, $value = null) {
 // Generate purchase invoice number
 function generatePurchaseNo() {
     global $pdo;
-    $prefix = 'PUR-' . date('ymd') . '-';
-    $stmt = $pdo->query("SELECT COUNT(*) FROM purchases WHERE invoice_no LIKE '$prefix%'");
-    $count = (int)$stmt->fetchColumn() + 1;
+    $prefix = 'INV-';
+    $stmt = $pdo->query("SELECT MAX(CAST(SUBSTRING(invoice_no, 5) AS UNSIGNED)) FROM purchases WHERE invoice_no REGEXP '^INV-[0-9]+$'");
+    $max = (int)$stmt->fetchColumn();
+    $next = $max + 1;
     do {
-        $no = $prefix . str_pad($count, 3, '0', STR_PAD_LEFT);
+        $no = $prefix . str_pad($next, 6, '0', STR_PAD_LEFT);
         $chk = $pdo->prepare("SELECT id FROM purchases WHERE invoice_no = ?");
         $chk->execute([$no]);
         if (!$chk->fetch()) break;
-        $count++;
+        $next++;
     } while (true);
     return $no;
 }
@@ -105,15 +106,16 @@ function generatePurchaseNo() {
 // Generate sale invoice number
 function generateSaleNo() {
     global $pdo;
-    $prefix = 'INV-' . date('ymd') . '-';
-    $stmt = $pdo->query("SELECT COUNT(*) FROM sales WHERE invoice_no LIKE '$prefix%'");
-    $count = (int)$stmt->fetchColumn() + 1;
+    $prefix = 'INV-';
+    $stmt = $pdo->query("SELECT MAX(CAST(SUBSTRING(invoice_no, 5) AS UNSIGNED)) FROM sales WHERE invoice_no REGEXP '^INV-[0-9]+$'");
+    $max = (int)$stmt->fetchColumn();
+    $next = $max + 1;
     do {
-        $no = $prefix . str_pad($count, 3, '0', STR_PAD_LEFT);
+        $no = $prefix . str_pad($next, 6, '0', STR_PAD_LEFT);
         $chk = $pdo->prepare("SELECT id FROM sales WHERE invoice_no = ?");
         $chk->execute([$no]);
         if (!$chk->fetch()) break;
-        $count++;
+        $next++;
     } while (true);
     return $no;
 }
